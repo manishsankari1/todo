@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimalist To-Do List</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom Styles -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+        }
+        /* Custom transition for a smoother feel */
+        .transition-all {
+            transition: all 0.3s ease-in-out;
+        }
+        /* Simple animation for new list items */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        
+        /* --- Styles for Slide-to-Delete --- */
+        .todo-item-wrapper {
+            position: relative;
+            overflow: hidden;
+            border-radius: 0.5rem; /* rounded-lg */
+        }
+        .todo-item-action {
+            position: absolute;
+            top: 0;
+            right: 0;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #ef4444; /* red-500 */
+            color: white;
+            z-index: 1;
+            user-select: none; /* Prevent text selection */
+        }
+        .todo-item-content {
+            position: relative; /* To ensure it sits on top of the action button */
+            z-index: 2;
+            background-color: #f8fafc; /* Must have a background to hide the action */
+            will-change: transform; /* Hint to browser for better performance */
+        }
+
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 flex items-center justify-center min-h-screen">
+    
+
+    <!-- Main Container -->
+    <div id="app" class="w-full max-w-md mx-auto p-4">
+
+        <!-- Login View -->
+        <div id="login-view" class="text-center">
+            <div class="bg-white p-8 rounded-2xl shadow-lg border border-slate-200">
+                <h1 class="text-3xl font-bold text-slate-900 mb-2">Welcome</h1>
+                <p class="text-slate-500 mb-8">Sign in to manage your personal to-do list.</p>
+                <button id="login-btn" class="w-full bg-slate-900 text-white font-semibold py-3 px-6 rounded-lg hover:bg-slate-700 transition-all shadow-md hover:shadow-lg flex items-center justify-center">
+                    <svg class="w-6 h-6 mr-3" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20.283 10.356h-8.327v3.451h4.792c-.446 2.193-2.313 3.453-4.792 3.453a5.27 5.27 0 0 1-5.279-5.28 5.27 5.27 0 0 1 5.279-5.279c1.259 0 2.397.447 3.29 1.178l2.6-2.599c-1.584-1.381-3.615-2.233-5.89-2.233a8.908 8.908 0 0 0-8.934 8.934 8.907 8.907 0 0 0 8.934 8.934c4.955 0 8.642-3.523 8.642-8.934 0-.528-.081-1.097-.202-1.625z"></path></svg>
+                    Sign In with Google
+                </button>
+            </div>
+        </div>
+
+        <!-- To-Do View -->
+        <div id="todo-view" class="hidden">
+            <div class="bg-white p-8 rounded-2xl shadow-lg border border-slate-200">
+                <!-- Header -->
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold text-slate-900">My To-Do List</h1>
+                        <p id="user-email" class="text-sm text-slate-500"></p>
+                    </div>
+                    <button id="logout-btn" class="text-slate-500 hover:text-slate-900 font-semibold text-sm py-2 px-4 rounded-lg hover:bg-slate-100 transition-all">
+                        Sign Out
+                    </button>
+                </div>
+
+                <!-- Add To-Do Form -->
+                <form id="add-todo-form" class="flex gap-3 mb-6">
+                    <input type="text" id="todo-input" placeholder="What needs to be done?" class="flex-grow bg-slate-100 border border-slate-200 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-slate-400 transition-all" required>
+                    <button type="submit" class="bg-slate-900 text-white font-semibold py-3 px-5 rounded-lg hover:bg-slate-700 transition-all shadow-sm hover:shadow-md">
+                        Add
+                    </button>
+                </form>
+
+                <!-- To-Do List -->
+                <div id="todo-list-container">
+                    <ul id="todo-list" class="space-y-3">
+                        <!-- JS will populate this -->
+                    </ul>
+                    <p id="loading" class="text-slate-400 text-center py-4">Loading tasks...</p>
+                    <p id="empty-state" class="text-slate-400 text-center py-4 hidden">Your list is empty. Add a task to get started!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Import necessary Firebase modules
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- DO NOT EDIT: These variables are provided by the environment ---
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "AIzaSyAgc_rulR3idKy4NvN6AtC2SmwBqx9-qDQ", authDomain: "minimal-todo-list-33e49.firebaseapp.com", projectId: "minimal-todo-list-33e49" };
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-todo-app';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : undefined;
+        // --- End of environment variables ---
+
+        // --- Firebase Initialization ---
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        // setLogLevel('debug'); // Uncomment for detailed logs
+
+        // --- DOM Element References ---
+        const loginView = document.getElementById('login-view');
+        const todoView = document.getElementById('todo-view');
+        const loginBtn = document.getElementById('login-btn');
+        const logoutBtn = document.getElementById('logout-btn');
+        const userEmailEl = document.getElementById('user-email');
+        const addTodoForm = document.getElementById('add-todo-form');
+        const todoInput = document.getElementById('todo-input');
+        const todoList = document.getElementById('todo-list');
+        const loadingIndicator = document.getElementById('loading');
+        const emptyState = document.getElementById('empty-state');
+        
+        let currentUserId = null;
+        let unsubscribeFromTodos = null; 
+
+        // --- Authentication Logic ---
+        loginBtn.addEventListener('click', async () => {
+            const provider = new GoogleAuthProvider();
+            try { await signInWithPopup(auth, provider); } catch (error) { console.error("Error signing in with Google: ", error); }
+        });
+
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                if(unsubscribeFromTodos) { unsubscribeFromTodos(); }
+                await signOut(auth);
+            } catch (error) { console.error("Error signing out: ", error); }
+        });
+
+        onAuthStateChanged(auth, user => {
+            if (user) {
+                currentUserId = user.uid;
+                userEmailEl.textContent = user.email;
+                loginView.classList.add('hidden');
+                todoView.classList.remove('hidden');
+                fetchTodos(currentUserId);
+            } else {
+                currentUserId = null;
+                loginView.classList.remove('hidden');
+                todoView.classList.add('hidden');
+                todoList.innerHTML = ''; 
+            }
+        });
+
+        async function initialAuth() {
+            if (initialAuthToken) {
+                try { await signInWithCustomToken(auth, initialAuthToken); } catch (error) { console.error("Error signing in with custom token:", error); }
+            }
+        }
+        
+        // --- Firestore (To-Do) Logic ---
+        function getTodosCollectionPath(userId) {
+            return `/artifacts/${appId}/users/${userId}/todos`;
+        }
+        
+        addTodoForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const taskText = todoInput.value.trim();
+            if (taskText && currentUserId) {
+                try {
+                    const todosCollectionPath = getTodosCollectionPath(currentUserId);
+                    await addDoc(collection(db, todosCollectionPath), { text: taskText, createdAt: new Date() });
+                    todoInput.value = '';
+                } catch (error) { console.error("Error adding document: ", error); }
+            }
+        });
+
+        function fetchTodos(userId) {
+            const todosCollectionPath = getTodosCollectionPath(userId);
+            const q = query(collection(db, todosCollectionPath));
+            
+            loadingIndicator.style.display = 'block';
+            emptyState.classList.add('hidden');
+
+            if (unsubscribeFromTodos) { unsubscribeFromTodos(); }
+
+            unsubscribeFromTodos = onSnapshot(q, (querySnapshot) => {
+                loadingIndicator.style.display = 'none';
+                const tasks = [];
+                querySnapshot.forEach((doc) => { tasks.push({ id: doc.id, ...doc.data() }); });
+                tasks.sort((a, b) => b.createdAt.toDate() - a.createdAt.toDate());
+                renderTodos(tasks);
+                emptyState.classList.toggle('hidden', tasks.length > 0);
+
+            }, (error) => {
+                console.error("Error getting documents: ", error);
+                loadingIndicator.textContent = "Error loading tasks.";
+            });
+        }
+        
+        function renderTodos(tasks) {
+            todoList.innerHTML = '';
+            tasks.forEach(task => {
+                const li = document.createElement('li');
+                li.className = 'todo-item-wrapper bg-slate-200 fade-in';
+                li.dataset.id = task.id;
+
+                const actionDiv = document.createElement('div');
+                actionDiv.className = 'todo-item-action';
+                actionDiv.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>`;
+                actionDiv.onclick = () => deleteTodo(task.id);
+
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'todo-item-content flex items-center justify-between p-4 border border-slate-200 rounded-lg';
+
+                const taskText = document.createElement('span');
+                taskText.textContent = task.text;
+                taskText.className = 'text-slate-800';
+                
+                contentDiv.appendChild(taskText);
+                li.appendChild(actionDiv); // Action div is behind
+                li.appendChild(contentDiv); // Content div is in front
+                
+                todoList.appendChild(li);
+                attachSlideToDelete(li); // Attach event listeners for this item
+            });
+        }
+        
+        function attachSlideToDelete(listItem) {
+            const contentDiv = listItem.querySelector('.todo-item-content');
+            const actionDiv = listItem.querySelector('.todo-item-action');
+            const ACTION_WIDTH = 70; // Width of the delete area in pixels
+            actionDiv.style.width = `${ACTION_WIDTH}px`;
+
+            let startX = 0;
+            let currentTranslate = 0;
+            let isDragging = false;
+            let animationFrameId;
+
+            const onPointerDown = (e) => {
+                startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+                isDragging = true;
+                contentDiv.style.transition = 'none'; // Disable transition while dragging
+
+                // Add listeners to the window to catch movement anywhere
+                window.addEventListener('mousemove', onPointerMove);
+                window.addEventListener('touchmove', onPointerMove, { passive: true });
+                window.addEventListener('mouseup', onPointerUp);
+                window.addEventListener('touchend', onPointerUp);
+            };
+
+            const onPointerMove = (e) => {
+                if (!isDragging) return;
+                const currentX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+                const diff = currentX - startX;
+                currentTranslate = Math.max(-ACTION_WIDTH, Math.min(0, diff)); // Only allow sliding left up to action width
+                
+                // Use requestAnimationFrame for smoother animation
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = requestAnimationFrame(() => {
+                    contentDiv.style.transform = `translateX(${currentTranslate}px)`;
+                });
+            };
+
+            const onPointerUp = () => {
+                if (!isDragging) return;
+                isDragging = false;
+                
+                // Clean up global listeners
+                window.removeEventListener('mousemove', onPointerMove);
+                window.removeEventListener('touchmove', onPointerMove);
+                window.removeEventListener('mouseup', onPointerUp);
+                window.removeEventListener('touchend', onPointerUp);
+
+                contentDiv.style.transition = 'transform 0.3s ease';
+                // Snap open or closed
+                if (currentTranslate < -ACTION_WIDTH / 2) {
+                    contentDiv.style.transform = `translateX(${-ACTION_WIDTH}px)`;
+                } else {
+                    contentDiv.style.transform = 'translateX(0px)';
+                }
+            };
+            
+            contentDiv.addEventListener('mousedown', onPointerDown);
+            contentDiv.addEventListener('touchstart', onPointerDown, { passive: true });
+        }
+
+        async function deleteTodo(docId) {
+            if (currentUserId) {
+                try {
+                    const todosCollectionPath = getTodosCollectionPath(currentUserId);
+                    await deleteDoc(doc(db, todosCollectionPath, docId));
+                } catch (error) { console.error("Error removing document: ", error); }
+            }
+        }
+        
+        // --- App Initialization ---
+        document.addEventListener('DOMContentLoaded', () => { initialAuth(); });
+
+    </script>
+</body>
+</html>
+
+
